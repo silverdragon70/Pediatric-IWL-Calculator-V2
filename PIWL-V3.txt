@@ -1,0 +1,414 @@
+import React, { useState } from "react";
+import {
+  Baby,
+  ChevronDown,
+  ChevronUp,
+  Sun,
+  Thermometer,
+  Droplets,
+  Flame,
+  AlertTriangle
+} from "lucide-react";
+
+const getNormalRRByAge = (months) => {
+  if (months < 1) return { min: 30, max: 60, label: "Newborn (<1 month)" };
+  if (months < 3) return { min: 30, max: 50, label: "1–3 months" };
+  if (months < 6) return { min: 25, max: 40, label: "3–6 months" };
+  if (months < 12) return { min: 20, max: 35, label: "6–12 months" };
+  if (months < 36) return { min: 20, max: 30, label: "1–3 years" };
+  return { min: 15, max: 25, label: "3+ years" };
+};
+
+const PediatricIWLCalculator = () => {
+  const [showDetails, setShowDetails] = useState(false);
+  const [showReferences, setShowReferences] = useState(false);
+  const [weight, setWeight] = useState("");
+  const [height, setHeight] = useState("");
+  const [temperature, setTemperature] = useState("");
+  const [respiratoryRate, setRespiratoryRate] = useState("");
+  const [ageYears, setAgeYears] = useState("");
+  const [ageMonthsOnly, setAgeMonthsOnly] = useState("");
+  const [factors, setFactors] = useState({
+    phototherapy: false,
+    radiantWarmer: false,
+    lowHumidity: false,
+    burns: false
+  });
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
+  const [hoveredFactor, setHoveredFactor] = useState(null);
+
+  const factorExplanations = {
+    phototherapy: "Phototherapy using blue light to treat jaundice increases IWL by 20% due to increased skin blood flow and heat production.",
+    radiantWarmer: "Radiant warmers increase IWL by 30% due to increased ambient temperature and direct radiant heat affecting skin temperature.",
+    lowHumidity: "Low humidity environments (<50%) increase IWL by 25% as the gradient for water evaporation from skin increases.",
+    burns: "Burns significantly increase IWL by 50% due to loss of skin barrier function and increased metabolic rate."
+  };
+
+  // Scientific references
+  const references = [
+    "Fanaroff, A. A., & Stoll, B. J. (2019). Fanaroff and Martin's Neonatal-Perinatal Medicine: Diseases of the Fetus and Infant (11th ed.). Elsevier.",
+    "Kliegman, R. M., St. Geme, J. W., Blum, N. J., Shah, S. S., Tasker, R. C., & Wilson, K. M. (2020). Nelson Textbook of Pediatrics (21st ed.). Elsevier.",
+    "Oh, W. (1978). Fluid and electrolyte management in low-birth-weight infants. Clinics in Perinatology, 5(1), 173-182.",
+    "Bell, E. F., & Oh, W. (1980). Fluid and electrolyte management. In G. B. Avery (Ed.), Neonatology: Pathophysiology and Management of the Newborn (2nd ed., pp. 697-710). Lippincott.",
+    "Baumgart, S. (1982). Radiant energy and insensible water loss in the premature newborn. Clinical Pediatrics, 21(3), 136-139.",
+    "Hammarlund, K., & Sedin, G. (1979). Transepidermal water loss in newborn infants. VII. Relation to gestational age. Acta Paediatrica Scandinavica, 68(6), 795-801."
+  ];
+
+  const validateInputs = () => {
+    const weightNum = parseFloat(weight);
+    const heightNum = parseFloat(height);
+    if (isNaN(weightNum) || weightNum <= 0) {
+      setError("Please enter a valid weight (kg)");
+      return false;
+    }
+    if (isNaN(heightNum) || heightNum <= 0) {
+      setError("Please enter a valid height (cm)");
+      return false;
+    }
+    setError("");
+    return true;
+  };
+
+  const calculateIWL = () => {
+    if (!validateInputs()) return;
+    const weightNum = parseFloat(weight);
+    const heightNum = parseFloat(height);
+    const tempNum = parseFloat(temperature);
+    const rrNum = parseFloat(respiratoryRate);
+    const feverAdjustment = !isNaN(tempNum) && tempNum > 37 ? (tempNum - 37) * 0.13 : 0;
+    const ageInMonths = (parseInt(ageYears || 0) * 12) + parseInt(ageMonthsOnly || 0);
+    const bsa = Math.sqrt((heightNum * weightNum) / 3600);
+    const baseIWL_low = bsa * 400;
+    const baseIWL_high = bsa * 500;
+    const feverMultiplier = 1 + feverAdjustment;
+    let rrAdjustment = 0;
+    const rrRange = getNormalRRByAge(ageInMonths);
+    if (!isNaN(rrNum) && rrNum > rrRange.max) {
+      rrAdjustment = (rrNum - rrRange.max) * 2 * weightNum;
+    }
+    const factorPercentages = {
+      phototherapy: 0.2,
+      radiantWarmer: 0.3,
+      lowHumidity: 0.25,
+      burns: 0.5
+    };
+    const additionalAdjustment_low = Object.entries(factors).reduce(
+      (sum, [key, enabled]) => enabled ? sum + baseIWL_low * factorPercentages[key] : sum,
+      0
+    );
+    const additionalAdjustment_high = Object.entries(factors).reduce(
+      (sum, [key, enabled]) => enabled ? sum + baseIWL_high * factorPercentages[key] : sum,
+      0
+    );
+    const totalIWL_low = (baseIWL_low * feverMultiplier) + rrAdjustment + additionalAdjustment_low;
+    const totalIWL_high = (baseIWL_high * feverMultiplier) + rrAdjustment + additionalAdjustment_high;
+    setResult({
+      totalIWL_low: totalIWL_low.toFixed(1),
+      totalIWL_high: totalIWL_high.toFixed(1),
+      hourly_low: (totalIWL_low / 24).toFixed(1),
+      hourly_high: (totalIWL_high / 24).toFixed(1),
+      rrAdjustment,
+      feverAdjustment,
+      temperature,
+      factors,
+      baseIWL_low,
+      baseIWL_high,
+      factorPercentages,
+      bsa,
+      additionalAdjustment_low,
+      additionalAdjustment_high,
+      feverMultiplier,
+      rrRange
+    });
+  };
+
+  const handleFactorChange = (factor) => {
+    setFactors(prev => ({
+      ...prev,
+      [factor]: !prev[factor]
+    }));
+  };
+
+  return (
+    <div className="p-4 max-w-xl mx-auto text-lg"> {/* Increased base font size to text-lg */}
+      <div className="text-center mb-6">
+        <div className="flex justify-center items-center mb-3">
+          <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-3 rounded-full shadow-lg">
+            <Baby className="text-white" size={36} /> {/* Increased icon size */}
+          </div>
+        </div>
+        <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2"> {/* Increased heading size */}
+          Pediatric IWL Calculator
+        </h1>
+        <p className="text-lg text-gray-600">Insensible Water Loss Calculator for Pediatric Patients</p> {/* Increased from text-base */}
+      </div>
+      
+      {error && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 text-lg"> {/* Increased error text size */}
+          {error}
+        </div>
+      )}
+      
+      <input placeholder="Weight (kg)" value={weight} onChange={e => setWeight(e.target.value)} className="border p-3 mb-3 w-full rounded text-lg" /> {/* Increased padding and text size */}
+      <input placeholder="Height (cm)" value={height} onChange={e => setHeight(e.target.value)} className="border p-3 mb-3 w-full rounded text-lg" />
+      <input placeholder="Temperature (°C) - Optional" value={temperature} onChange={e => setTemperature(e.target.value)} className="border p-3 mb-3 w-full rounded text-lg" />
+      <input placeholder="Respiratory Rate - Optional" value={respiratoryRate} onChange={e => setRespiratoryRate(e.target.value)} className="border p-3 mb-3 w-full rounded text-lg" />
+      <input placeholder="Age (years) - Optional" value={ageYears} onChange={e => setAgeYears(e.target.value)} className="border p-3 mb-3 w-full rounded text-lg" />
+      <input placeholder="Age (months) - Optional" value={ageMonthsOnly} onChange={e => setAgeMonthsOnly(e.target.value)} className="border p-3 mb-3 w-full rounded text-lg" />
+      
+      <div className="mb-4 relative">
+        <h3 className="font-semibold mb-3 text-xl text-gray-700">Additional Adjustments</h3> {/* Increased heading size */}
+        <div className="space-y-4"> {/* Increased spacing */}
+          <div className="relative">
+            <label 
+              className="flex items-center space-x-3 cursor-pointer hover:bg-gray-50 p-3 rounded transition-colors"
+              onMouseEnter={() => setHoveredFactor('phototherapy')}
+              onMouseLeave={() => setHoveredFactor(null)}
+            >
+              <input
+                type="checkbox"
+                checked={factors.phototherapy}
+                onChange={() => handleFactorChange('phototherapy')}
+                className="rounded w-5 h-5" // Increased checkbox size
+              />
+              <Sun className="text-yellow-500" size={24} /> {/* Increased icon size */}
+              <span className="text-lg">Phototherapy</span> {/* Increased from text-base */}
+            </label>
+            {hoveredFactor === 'phototherapy' && (
+              <div className="absolute top-full mt-2 left-0 z-10 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-4"> {/* Increased padding and margin */}
+                <div className="flex items-center mb-2">
+                  <Sun className="text-yellow-500 mr-2" size={20} /> {/* Increased icon size */}
+                  <span className="font-semibold text-lg">Phototherapy</span> {/* Increased from text-base */}
+                </div>
+                <p className="text-base text-gray-600">{factorExplanations.phototherapy}</p> {/* Increased from text-sm */}
+              </div>
+            )}
+          </div>
+          
+          <div className="relative">
+            <label 
+              className="flex items-center space-x-3 cursor-pointer hover:bg-gray-50 p-3 rounded transition-colors"
+              onMouseEnter={() => setHoveredFactor('radiantWarmer')}
+              onMouseLeave={() => setHoveredFactor(null)}
+            >
+              <input
+                type="checkbox"
+                checked={factors.radiantWarmer}
+                onChange={() => handleFactorChange('radiantWarmer')}
+                className="rounded w-5 h-5"
+              />
+              <Thermometer className="text-red-500" size={24} />
+              <span className="text-lg">Radiant Warmer</span>
+            </label>
+            {hoveredFactor === 'radiantWarmer' && (
+              <div className="absolute top-full mt-2 left-0 z-10 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-4">
+                <div className="flex items-center mb-2">
+                  <Thermometer className="text-red-500 mr-2" size={20} />
+                  <span className="font-semibold text-lg">Radiant Warmer</span>
+                </div>
+                <p className="text-base text-gray-600">{factorExplanations.radiantWarmer}</p>
+              </div>
+            )}
+          </div>
+          
+          <div className="relative">
+            <label 
+              className="flex items-center space-x-3 cursor-pointer hover:bg-gray-50 p-3 rounded transition-colors"
+              onMouseEnter={() => setHoveredFactor('lowHumidity')}
+              onMouseLeave={() => setHoveredFactor(null)}
+            >
+              <input
+                type="checkbox"
+                checked={factors.lowHumidity}
+                onChange={() => handleFactorChange('lowHumidity')}
+                className="rounded w-5 h-5"
+              />
+              <Droplets className="text-blue-500" size={24} />
+              <span className="text-lg">Low Humidity</span>
+            </label>
+            {hoveredFactor === 'lowHumidity' && (
+              <div className="absolute top-full mt-2 left-0 z-10 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-4">
+                <div className="flex items-center mb-2">
+                  <Droplets className="text-blue-500 mr-2" size={20} />
+                  <span className="font-semibold text-lg">Low Humidity</span>
+                </div>
+                <p className="text-base text-gray-600">{factorExplanations.lowHumidity}</p>
+              </div>
+            )}
+          </div>
+          
+          <div className="relative">
+            <label 
+              className="flex items-center space-x-3 cursor-pointer hover:bg-gray-50 p-3 rounded transition-colors"
+              onMouseEnter={() => setHoveredFactor('burns')}
+              onMouseLeave={() => setHoveredFactor(null)}
+            >
+              <input
+                type="checkbox"
+                checked={factors.burns}
+                onChange={() => handleFactorChange('burns')}
+                className="rounded w-5 h-5"
+              />
+              <Flame className="text-orange-500" size={24} />
+              <span className="text-lg">Burns</span>
+            </label>
+            {/* Fixed: Positioning for Burns explanation card */}
+            {hoveredFactor === 'burns' && (
+              <div className="absolute top-full mt-2 left-0 z-10 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-4">
+                <div className="flex items-center mb-2">
+                  <Flame className="text-orange-500 mr-2" size={20} />
+                  <span className="font-semibold text-lg">Burns</span>
+                </div>
+                <p className="text-base text-gray-600">{factorExplanations.burns}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      
+      <button onClick={calculateIWL} className="bg-blue-600 text-white px-5 py-3 rounded w-full hover:bg-blue-700 transition-colors text-xl">Calculate</button> {/* Increased padding and text size */}
+
+      {result && (
+        <div className="mt-8 p-5 bg-blue-50 rounded-lg border border-blue-200"> {/* Increased padding and margin */}
+          {/* Daily IWL and Hourly IWL box - Updated */}
+          <div className="bg-blue-50 p-4 rounded mb-4 border border-blue-200"> {/* Increased padding and margin */}
+            <p className="text-xl"><strong>Daily IWL:</strong> {result.totalIWL_low} – {result.totalIWL_high} mL/day</p> {/* Increased text size */}
+            <p className="text-xl"><strong>Hourly IWL:</strong> {result.hourly_low} – {result.hourly_high} mL/hour</p> {/* Increased text size */}
+          </div>
+
+          <button
+            onClick={() => setShowDetails(!showDetails)}
+            className="text-blue-700 underline mt-3 flex items-center hover:text-blue-900 text-lg"
+          >
+            {showDetails ? <ChevronUp className="mr-1" size={20} /> : <ChevronDown className="mr-1" size={20} />} How it is calculated {/* Fixed: Added "How it is calculated" text */}
+          </button>
+
+          {showDetails && (
+            <div className="mt-5 text-lg bg-white p-5 rounded border space-y-4 text-gray-800"> {/* Increased padding, margin, spacing, and text size */}
+              {/* Step-by-Step Calculation heading - Updated */}
+              <div className="font-semibold text-blue-700 mb-3 text-xl">Step-by-Step Calculation:</div> {/* Increased heading size and margin */}
+              
+              {/* Individual step boxes - Updated */}
+              <div className="bg-blue-50 p-4 rounded"> {/* Increased padding */}
+                <div className="font-semibold mb-2 text-blue-700 text-lg">Step 1: Calculate Body Surface Area (BSA)</div> {/* Increased text size */}
+                <div className="ml-3 space-y-2"> {/* Increased margin and spacing */}
+                  <div><strong>Formula:</strong> BSA = √((height × weight) / 3600)</div>
+                  <div><strong>Calculation:</strong> BSA = √(({height} × {weight}) / 3600)</div>
+                  <div><strong>Result:</strong> BSA = {result.bsa.toFixed(3)} m²</div>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 p-4 rounded">
+                <div className="font-semibold mb-2 text-blue-700 text-lg">Step 2: Calculate Base IWL</div>
+                <div className="ml-3 space-y-2">
+                  <div><strong>Formula:</strong> Base IWL = 400–500 mL/m²/day × BSA</div>
+                  <div><strong>Calculation:</strong> Base IWL = 400–500 × {result.bsa.toFixed(3)}</div>
+                  <div><strong>Result:</strong> Base IWL = {result.baseIWL_low.toFixed(1)} – {result.baseIWL_high.toFixed(1)} mL/day</div>
+                </div>
+              </div>
+
+              {result.feverAdjustment > 0 && (
+                <div className="bg-blue-50 p-4 rounded">
+                  <div className="font-semibold mb-2 text-blue-700 text-lg">Step 3: Apply Fever Adjustment</div>
+                  <div className="ml-3 space-y-2">
+                    <div><strong>Formula:</strong> Fever Multiplier = 1 + (Temperature - 37) × 0.13</div>
+                    <div><strong>Calculation:</strong> Fever Multiplier = 1 + ({result.temperature} - 37) × 0.13</div>
+                    <div><strong>Result:</strong> Fever Multiplier = {result.feverMultiplier.toFixed(3)} (+{(result.feverAdjustment * 100).toFixed(1)}%)</div>
+                  </div>
+                </div>
+              )}
+
+              {result.rrAdjustment > 0 && (
+                <div className="bg-blue-50 p-4 rounded">
+                  <div className="font-semibold mb-2 text-blue-700 text-lg">Step {result.feverAdjustment > 0 ? '4' : '3'}: Apply Respiratory Rate Adjustment</div>
+                  <div className="ml-3 space-y-2">
+                    <div><strong>Formula:</strong> RR Adjustment = (RR - Normal Max RR) × 2 × Weight</div>
+                    <div><strong>Calculation:</strong> RR Adjustment = ({respiratoryRate} - {result.rrRange.max}) × 2 × {weight}</div>
+                    <div><strong>Result:</strong> RR Adjustment = +{result.rrAdjustment.toFixed(1)} mL/day</div>
+                  </div>
+                </div>
+              )}
+
+              {Object.values(result.factors).some(Boolean) && (
+                <div className="bg-blue-50 p-4 rounded">
+                  <div className="font-semibold mb-2 text-blue-700 text-lg">Step {result.feverAdjustment > 0 && result.rrAdjustment > 0 ? '5' : result.feverAdjustment > 0 || result.rrAdjustment > 0 ? '4' : '3'}: Apply Additional Adjustments</div>
+                  <div className="ml-3">
+                    <div className="mb-2"><strong>Selected factors:</strong></div>
+                    <div className="space-y-3"> {/* Increased spacing */}
+                      {Object.entries(result.factors).map(([key, val]) => {
+                        if (!val) return null;
+                        const factorName = key === 'lowHumidity' ? 'Low Humidity' : key.charAt(0).toUpperCase() + key.slice(1);
+                        const percentage = (result.factorPercentages[key] * 100);
+                        const lowAdjustment = (result.baseIWL_low * result.factorPercentages[key]).toFixed(1);
+                        const highAdjustment = (result.baseIWL_high * result.factorPercentages[key]).toFixed(1);
+                        return (
+                          <div key={key} className="bg-white p-3 rounded"> {/* Increased padding */}
+                            <div><strong>{factorName}:</strong> +{percentage}% of Base IWL</div>
+                            <div className="text-gray-600">= +{lowAdjustment} – {highAdjustment} mL/day</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Final Calculation box - Already suitable */}
+              <div className="bg-blue-50 p-4 rounded border-l-4 border-blue-500"> {/* Increased padding */}
+                <div className="font-semibold mb-2 text-blue-700 text-xl">Final Calculation:</div> {/* Increased heading size */}
+                <div className="ml-3 space-y-2"> {/* Increased margin and spacing */}
+                  <div><strong>Formula:</strong> Total IWL = (Base IWL × Fever Multiplier) + RR Adjustment + Additional Adjustments</div>
+                  <div>
+                    <strong>Low Range:</strong> ({result.baseIWL_low.toFixed(1)} × {result.feverMultiplier.toFixed(3)}) + {result.rrAdjustment.toFixed(1)} + {result.additionalAdjustment_low.toFixed(1)} = {result.totalIWL_low} mL/day
+                  </div>
+                  <div>
+                    <strong>High Range:</strong> ({result.baseIWL_high.toFixed(1)} × {result.feverMultiplier.toFixed(3)}) + {result.rrAdjustment.toFixed(1)} + {result.additionalAdjustment_high.toFixed(1)} = {result.totalIWL_high} mL/day
+                  </div>
+                  <div className="mt-4 p-3 bg-blue-100 rounded"> {/* Increased padding and margin */}
+                    <div className="font-semibold text-lg">Hourly IWL: {result.hourly_low} – {result.hourly_high} mL/hour</div> {/* Increased text size */}
+                    <div className="text-base text-gray-600">(Total Daily IWL ÷ 24 hours)</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* References Section */}
+      <div className="mt-8 p-5 bg-gray-50 rounded-lg border border-gray-200"> {/* Increased padding and margin */}
+        <button
+          onClick={() => setShowReferences(!showReferences)}
+          className="w-full text-left font-semibold text-gray-700 flex justify-between items-center hover:text-blue-700 text-lg"
+        >
+          <span>References</span>
+          {showReferences ? <ChevronUp className="mr-1" size={20} /> : <ChevronDown className="mr-1" size={20} />} {/* Increased icon size */}
+        </button>
+        {showReferences && (
+          <div className="mt-4 text-base text-gray-800 space-y-2"> {/* Increased text size */}
+            <ul className="list-disc pl-6"> {/* Increased padding */}
+              {references.map((ref, index) => (
+                <li key={index}>{ref}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {/* Medical Disclaimer Section - Now non-collapsible */}
+      <div className="mt-4 p-5 bg-red-50 rounded-lg border border-red-200"> {/* Increased padding */}
+        <div className="font-semibold text-red-700 flex items-center mb-3 text-lg"> {/* Increased text size and margin */}
+          <AlertTriangle className="mr-2" size={24} /> {/* Increased icon size */}
+          <span>Medical Disclaimer</span>
+        </div>
+        <div className="text-base text-red-800 space-y-2">
+          <p><strong>Important:</strong> This calculator is for educational and informational purposes only. The information provided may not be accurate and should not be considered as medical advice. Always consult with a qualified healthcare professional or neonatologist before making any clinical decisions. This tool does not replace professional medical judgment, clinical assessment, or established protocols. Healthcare providers must verify all calculations and consider individual patient factors, institutional guidelines, and current evidence-based practices.</p>
+          <p>Use of this calculator is at your own risk. The developers assume no responsibility for any clinical decisions made based on this tool.</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default PediatricIWLCalculator;
